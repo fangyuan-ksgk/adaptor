@@ -3,6 +3,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 from human_eval.data import write_jsonl, read_problems
 import os
+from mlx_lm import load, generate
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
 # Set the device to GPU (CUDA) if available
@@ -57,6 +58,17 @@ def split_and_trim_code(text: str):
     return "    " + code.strip()
 
 
+def trim_response(response):
+    if "if __name__" in response:
+        return response.split("if __name__")[0]
+    response = '    ' + response.lstrip()
+    return response
+
+def get_mlx_completion(prompt, model, tokenizer):
+    response = generate(model, tokenizer, prompt=prompt, max_tokens=512, temp=0.2, top_p=0.95)
+    return trim_response(response)
+
+
 def generate_one_completion_instruct(prompt, model, tokenizer, device):
     # Format the prompt using the tokenizer's chat template
     messages = [
@@ -73,6 +85,7 @@ def generate_one_completion_instruct(prompt, model, tokenizer, device):
         "text-generation",
         model=model,
         tokenizer=tokenizer,
+        device=device
     )
 
     generation_args = {
@@ -89,6 +102,9 @@ def generate_one_completion_instruct(prompt, model, tokenizer, device):
     return split_and_trim_code(output_text)
 
 
+# def generate_completion_mlx(model, tokenizer, )
+
+
 # I still suspect llama3-8b is not fairly evaluated here ... 
 # How come they do not release the code they've used to evaluate it on HumanEval?
 
@@ -100,36 +116,31 @@ class CodeCompletionGenerator:
         self.device = device
         self.model_name = model_name
         self.is_instruct = is_instruct
-        self.model = AutoModelForCausalLM.from_pretrained(self.model_name, trust_remote_code=True).to(self.device)
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name, trust_remote_code=True)
+        if self.device == "mps":
+            self.model, self.tokenizer = load(model_name)
+        else: # Cuda device
+            self.model = AutoModelForCausalLM.from_pretrained(self.model_name, trust_remote_code=True).to(self.device)
+            self.tokenizer = AutoTokenizer.from_pretrained(self.model_name, trust_remote_code=True)
 
     def generate_one_completion(self, prompt):
-        if self.is_instruct:
-            return generate_one_completion_instruct(prompt, self.model, self.tokenizer, self.device)
-        else:
-            return generate_one_completion_pretrained(prompt, self.model, self.tokenizer, self.device)
-        
-
-def check_code(task_id, problem, completion, timeout=60.0):
+        if self.device == "mps":
+            return get_mlx_completion(prompt, self.model, self.tokenizer)
+        else: # Cuda device
+            if self.is_instruct:
+                return generate_one_completion_instruct(prompt, self.model, self.tokenizer, self.device)
+            else:
+                return generate_one_completion_pretrained(prompt, self.model, self.tokenizer, self.device)
+            
     
+def check_code(task_id, problem, completion, timeout=60.0):
     # Construct the check program and run it. This is literally the python file which is supposed to be executed
     check_program = (
         problem["prompt"] + completion + "\n" +
         problem["test"] + "\n" +
         f"check({problem['entry_point']})"
     ) 
-
     import subprocess
-    try:
-        # Execute the check program and capture the output and errors
-        out = subprocess.run(["python", "-c", check_program], capture_output=True, text=True, check=True)
-        success = (out.returncode == 0)
-        message = out.stdout
-        # print("Output:", out.stdout)
-        return success, message
-    except subprocess.CalledProcessError as e:
-        sucess = False
-        message = e.stderr
-        # Print the error output if the subprocess fails
-        # print("Error:", e.stderr)
-        return success, message
+    out = subprocess.run(["python", "-c", check_program], capture_output=True, text=True, check=False)
+    success = out.returncode == 0
+    message = out.stderr
+    return check_program, success, message
