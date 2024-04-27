@@ -1,7 +1,9 @@
 from operator import is_
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 from human_eval.data import write_jsonl, read_problems
+import os
+os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
 # Set the device to GPU (CUDA) if available
 # device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -52,14 +54,11 @@ def split_and_trim_code(text: str):
         # If no "```" is found, return the code until the end of the string
         code = code_after_def
     # Removing leading and trailing whitespaces and newlines
-    return code.strip()
+    return "    " + code.strip()
 
 
 def generate_one_completion_instruct(prompt, model, tokenizer, device):
     # Format the prompt using the tokenizer's chat template
-    global i 
-    i+=1 
-    print("Generating {}".format(i))
     messages = [
         {
             "role": "system",
@@ -68,20 +67,26 @@ def generate_one_completion_instruct(prompt, model, tokenizer, device):
         },
         {"role": "user", "content": prompt},
     ]
-    # Format the prompt using the tokenizer's chat template
-    formatted_prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    
-    # Generate a response using the model
-    inputs = tokenizer(formatted_prompt, return_tensors="pt").to(device)
-    outputs = model.generate(**inputs, max_new_tokens=512, do_sample=True, temperature=0.2, top_p=0.95)
-    
-    # Extract the generated text
-    text = outputs[0]["generated_text"]
 
-    print("###"*50)
-    # print(split_and_trim_code(text.split("<|assistant|>")[1]))
-    # return text
-    return split_and_trim_code(text.split("<|assistant|>")[1])
+    # Use Pipeline for that
+    pipe = pipeline(
+        "text-generation",
+        model=model,
+        tokenizer=tokenizer,
+    )
+
+    generation_args = {
+        "max_new_tokens": 512,
+        "return_full_text": False,
+        "temperature": 0.2,
+        "do_sample": True,
+        "top_p": 0.95,
+    }
+
+    output = pipe(messages, **generation_args)
+    output_text = output[0]['generated_text'] # Extract output text
+
+    return split_and_trim_code(output_text)
 
 
 # I still suspect llama3-8b is not fairly evaluated here ... 
@@ -103,3 +108,28 @@ class CodeCompletionGenerator:
             return generate_one_completion_instruct(prompt, self.model, self.tokenizer, self.device)
         else:
             return generate_one_completion_pretrained(prompt, self.model, self.tokenizer, self.device)
+        
+
+def check_code(task_id, problem, completion, timeout=60.0):
+    
+    # Construct the check program and run it. This is literally the python file which is supposed to be executed
+    check_program = (
+        problem["prompt"] + completion + "\n" +
+        problem["test"] + "\n" +
+        f"check({problem['entry_point']})"
+    ) 
+
+    import subprocess
+    try:
+        # Execute the check program and capture the output and errors
+        out = subprocess.run(["python", "-c", check_program], capture_output=True, text=True, check=True)
+        success = (out.returncode == 0)
+        message = out.stdout
+        # print("Output:", out.stdout)
+        return success, message
+    except subprocess.CalledProcessError as e:
+        sucess = False
+        message = e.stderr
+        # Print the error output if the subprocess fails
+        # print("Error:", e.stderr)
+        return success, message
