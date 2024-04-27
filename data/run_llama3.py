@@ -2,10 +2,10 @@ from sample_hf import CodeCompletionGenerator
 from human_eval.data import write_jsonl, read_problems
 from tqdm import tqdm
 
-model_name = "microsoft/Phi-3-mini-128k-instruct"
-# model_name="meta-llama/Meta-Llama-3-8B"
+# model_name = "microsoft/Phi-3-mini-128k-instruct"
+model_name="meta-llama/Meta-Llama-3-8B"
 is_instruct = True
-file_name = "eval_phi_3_instruct"
+file_name = "eval_llama3_pretrain"
 
 code_gen = CodeCompletionGenerator(model_name=model_name, device="mps", is_instruct=is_instruct)
 

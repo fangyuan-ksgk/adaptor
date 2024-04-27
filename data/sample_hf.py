@@ -1,8 +1,9 @@
 from operator import is_
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
-from human_eval.data import write_jsonl, read_problems
+from human_eval.data import write_jsonl, read_problems, stream_jsonl
 import os
+from tqdm import tqdm
 from mlx_lm import load, generate
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
@@ -64,9 +65,23 @@ def trim_response(response):
     response = '    ' + response.lstrip()
     return response
 
-def get_mlx_completion(prompt, model, tokenizer):
-    response = generate(model, tokenizer, prompt=prompt, max_tokens=512, temp=0.2, top_p=0.95)
+def get_mlx_completion_pretrained(prompt, model, tokenizer, verbose=True):
+    response = generate(model, tokenizer, prompt=prompt, max_tokens=512, temp=0.2, top_p=0.95, verbose=verbose)
     return trim_response(response)
+
+def get_mlx_completion_instruct(prompt, model, tokenizer, verbose=True):
+    messages = [
+        {
+            "role": "system",
+            "content": "You are a friendly chatbot. WRITE THE FULL COMPLETE FUNCTION (EG WITH def ....) END CODE WITH '```'. NOTE YOU ABSOLUTELY MUST END THE CODE WITH END CODE WITH '```' OR ELSE THE CODE WILL NOT BE INTERPRETTED!!!!",
+
+        },
+        {"role": "user", "content": prompt},
+    ]
+    format_prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    response = generate(model, tokenizer, prompt=format_prompt, max_tokens=512, temp=0.2, top_p=0.95, verbose=verbose)
+    response = response.split("<|im_end|>")[0]
+    return response
 
 
 def generate_one_completion_instruct(prompt, model, tokenizer, device):
@@ -124,7 +139,10 @@ class CodeCompletionGenerator:
 
     def generate_one_completion(self, prompt):
         if self.device == "mps":
-            return get_mlx_completion(prompt, self.model, self.tokenizer)
+            if self.is_instruct:
+                return get_mlx_completion_instruct(prompt, self.model, self.tokenizer)
+            else:
+                return get_mlx_completion_pretrained(prompt, self.model, self.tokenizer)
         else: # Cuda device
             if self.is_instruct:
                 return generate_one_completion_instruct(prompt, self.model, self.tokenizer, self.device)
@@ -132,7 +150,7 @@ class CodeCompletionGenerator:
                 return generate_one_completion_pretrained(prompt, self.model, self.tokenizer, self.device)
             
     
-def check_code(task_id, problem, completion, timeout=60.0):
+def check_code(task_id, problem, completion, timeout=10.0):
     # Construct the check program and run it. This is literally the python file which is supposed to be executed
     check_program = (
         problem["prompt"] + completion + "\n" +
@@ -140,7 +158,30 @@ def check_code(task_id, problem, completion, timeout=60.0):
         f"check({problem['entry_point']})"
     ) 
     import subprocess
-    out = subprocess.run(["python", "-c", check_program], capture_output=True, text=True, check=False)
-    success = out.returncode == 0
-    message = out.stderr
+    try:
+        out = subprocess.run(["python", "-c", check_program], capture_output=True, text=True, timeout=timeout, check=False)
+        success = out.returncode == 0
+        message = out.stderr
+    except subprocess.TimeoutExpired:
+        success = False
+        message = "Timeout expired after {} seconds".format(timeout) + " Possibly infinite loop."
     return check_program, success, message
+
+
+def check_performance_stream(sample_file):
+    problems = read_problems()
+    for sample in stream_jsonl(sample_file): # This is a generator
+        task_id = sample['task_id']
+        problem = problems[task_id]
+        check_program, success, message = check_code(task_id, problem, sample['completion'])
+        sample['program'] = check_program
+        sample['success'] = success
+        sample['message'] = message
+        yield sample
+
+def check_performance(filename):
+    sample_file = filename + ".jsonl"  
+    out_file = sample_file + "_results.jsonl"
+    print(f"Writing results to {out_file}...")
+    n_samples = sum(1 for _ in stream_jsonl(sample_file))
+    write_jsonl(out_file, tqdm(check_performance_stream(sample_file), total=n_samples))
