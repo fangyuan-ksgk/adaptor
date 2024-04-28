@@ -10,7 +10,7 @@ import numpy as np
 config_name = "phi_3_instruct"
 code_gen = CodeCompletionGenerator.from_config(config_name, device="mps")
 
-batches = np.array_split(list(range(162)), 60)
+batches = [indices.tolist() for indices in np.array_split(list(range(162)), 60)]
 max_search = 30
 pb = tqdm(total=len(batches), desc="MCTS Search Batches")
 for i, indices in enumerate(batches):
