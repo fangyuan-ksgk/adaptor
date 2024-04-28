@@ -20,6 +20,10 @@ def load_config(config_name):
     config = json.load(open(config_path, 'r'))
     return config
 
+def save_config(config_name, config):
+    config_path = f"{config_dir}{config_name}.json"
+    json.dump(config, open(config_path, 'w'), indent=4)
+
 
 def generate_one_completion_pretrained(prompt: str, system_prompt: str,  model, tokenizer, device):
     """
@@ -69,6 +73,15 @@ def split_and_trim_code(text: str):
     # Removing leading and trailing whitespaces and newlines
     return "    " + code.strip()
 
+def split_and_trim_code_mlx(text: str):
+    text = split_and_trim_code(text)
+    r = text.split("<|end|>")[0]
+    lines = r.split('\n')
+    # recursively pop out lines after the return statement
+    while lines and not (lines[-1].strip()).startswith('return'):
+        lines.pop()
+    r = '\n'.join(lines)
+    return r
 
 def trim_response(response):
     if "if __name__" in response:
@@ -92,7 +105,8 @@ def get_mlx_completion_instruct(prompt, system_prompt, model, tokenizer, verbose
     ]
     format_prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     response = generate(model, tokenizer, prompt=format_prompt, max_tokens=512, temp=0.2, top_p=0.95, verbose=verbose)
-    response = response.split("<|im_end|>")[0]
+    response = split_and_trim_code_mlx(response)
+    # response = response.split("<|im_end|>")[0]
     return response
 
 
@@ -168,14 +182,17 @@ class CodeCompletionGenerator:
             else:
                 return generate_one_completion_pretrained(prompt, self.system_prompt, self.model, self.tokenizer, self.device)
             
-    def run_human_eval_test(self, file_name=None, indices=None, global_system_prompt=""):
-        if file_name is None:
+    def run_human_eval_test(self, indices=None, global_system_prompt="", id=""):
+        if indices is None:
             file_name = self.file_name
+        else: # with specific indices, name of the stored file is automatically updated here
+            file_name = f"{self.file_name}-{'-'.join(map(str, indices))}"
+
         problems = read_problems()
         if indices is not None:
             problems = {list(problems.keys())[i]: problems[list(problems.keys())[i]] for i in indices}
         # Code Completion
-        num_samples_per_task = 2
+        num_samples_per_task = 1
         total_tasks = len(problems)
         pb = tqdm(total=total_tasks * num_samples_per_task, desc="Generating code completions")
         samples = []
@@ -185,10 +202,10 @@ class CodeCompletionGenerator:
                 samples.append(dict(task_id=task_id, completion=completion))
                 pb.update(1)
         pb.close()
-        write_jsonl(f"{log_dir}{file_name}.jsonl", samples)
+        write_jsonl(f"{log_dir}{file_name}_{id}.jsonl", samples)
 
         # Error Message & Information Parsing
-        check_performance(file_name, indices)
+        check_performance(file_name, indices, id)
 
         if indices is None:
             # Standard HumanEval Benchmarking
@@ -196,6 +213,13 @@ class CodeCompletionGenerator:
             print("----- HumanEval Benchmarking Results [All Cases] -----")
             for k, v in results.items():
                 print(f"{k}: {v}")
+
+    def get_info(self, indices=None, id=""):
+        info_dicts = get_performance_info(self.file_name, indices, id)
+        infos = []
+        for info in info_dicts:
+            infos.append(info)
+        return infos
 
             
     
@@ -232,21 +256,30 @@ def check_performance_stream(sample_file, indices=None):
         task_id = sample['task_id']
         problem = problems[task_id]
         check_program, success, message = check_code(task_id, problem, sample['completion'])
+        sample['prompt'] = problem['prompt']
+        sample['entry_point'] = problem['entry_point']
+        sample['canonical_solution'] = problem['canonical_solution']
         sample['program'] = check_program
         sample['success'] = success
         sample['message'] = message
         yield sample
 
-def check_performance(filename, indices=None):
+def check_performance(filename, indices=None, id=""):
     """ 
     Pass / Error Message, useful for reflective debugging
     """
-    sample_file = log_dir + filename + ".jsonl"  
-    out_file = sample_file + "_info.jsonl"
+    sample_file = log_dir + filename + f"_{id}.jsonl"  
+    out_file = sample_file.replace(f"_{id}.jsonl", f"_{id}_info.jsonl")
     print(f"Writing error information to {out_file}...")
     n_samples = sum(1 for _ in stream_jsonl(sample_file))
     write_jsonl(out_file, tqdm(check_performance_stream(sample_file, indices), total=n_samples))
 
+def get_performance_info(filename, indices=None, id=""):
+    if indices == None:
+        sample_file = log_dir + filename + f"_{id}.jsonl"
+    else:
+        sample_file = log_dir + filename + "-" + "-".join(map(str, indices)) + f"_{id}_info.jsonl"
+    return stream_jsonl(sample_file)
 
 def benchmark_performance(filename, k=[1]):
     """ 
