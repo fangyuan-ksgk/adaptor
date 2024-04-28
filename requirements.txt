@@ -1,0 +1,6 @@
+transformers
+sentence_transformers
+groq
+tqdm
+fire
+numpy
