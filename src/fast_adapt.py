@@ -231,7 +231,7 @@ def call_rewriter(case_infos):
 # Search Algorithm: Monte Carlo Tree Search #
 #############################################
 
-# Key is to incorporate the information into node
+# Key is to incorporate the information into Node, then MCTS is just one way to play with it
 class Node:
     def __init__(self, infos, prompt, score, id, parent=None):
         self.infos = infos
@@ -262,14 +262,21 @@ class Node:
         for prompt in prompts:
             self.children.append(Node.from_prompt(indices, prompt, self.id + 1, code_gen, parent=self))
         return self.children
+    
+    def save_node(self, indices, text=""):
+        info_dict = {"indices": indices, "prompt": self.prompt, "id": self.id}
+        file_name = "data/log/best_node-"+ text + "-".join(map(str, indices)) + ".json"
+        with open(file_name, "w") as f:
+            json.dump(info_dict, f)
 
 
 class MCTS:
-    def __init__(self, prompt, id, indices, code_gen):
-        self.indice = indices
+    def __init__(self, prompt, id, indices, code_gen, max_search=50):
+        self.indices = indices
         self.code_gen = code_gen
-        self.root = Node.make(indices, prompt, id, code_gen)
+        self.root = Node.from_prompt(indices, prompt, id, code_gen)
         self.nodes = [self.root]
+        self.max_search = max_search
 
     def select_node(self):
         # Select the node with the highest UCB1 score
@@ -290,12 +297,15 @@ class MCTS:
 
     def is_search_complete(self):
         # Define a condition to stop the search, e.g., a maximum number of nodes
-        return len(self.nodes) > 100
+        return len(self.nodes) > self.max_search
+    
+    @property
+    def best_node(self):
+        return max(self.nodes, key=lambda n: n.score / n.visits if n.visits > 0 else 0)
 
     def get_best_prompt(self):
         # Return the prompt of the node with the highest average score
-        best_node = max(self.nodes, key=lambda n: n.score / n.visits if n.visits > 0 else 0)
-        return best_node.prompt
+        return self.best_node.prompt
 
     def get_prompt_score(self, prompt):
         # Find the node with the given prompt and return its score
@@ -303,6 +313,10 @@ class MCTS:
             if node.prompt == prompt:
                 return node.score / node.visits if node.visits > 0 else 0
         return 0
+    
+    def save_best_node(self): # Save the best node
+        self.best_node.save_node(self.indices)
+    
 
     
 
