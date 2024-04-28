@@ -77,13 +77,15 @@ add_knowledge_tool = {
 ############
 # Pipeline #
 ############
-# 1. Initialize Agent with System Prompt --> 
-# 2. Run HumanEval Test --> 
-# 3. Get error message --> 
-# 4. Update knowledge & prompt --> 
+# 1. Initialize Agent with System Prompt [Done for both instruction & pretrained model]
+# 2. Run HumanEval Test --> [Included into the CodeGen class run_human_eval_test functional with custome indices]
+# 3. Get error message --> [Included into the CodeGen class run_human_eval_test functional with custome indices]
+# 4. Update knowledge & prompt & Rewrite the prompt for better performance --> 
 # 5. Loop
+# 6. FineTune & Pretrain for Long-Term memory update
+# 7. Port in fine-tuned adaptor model for fast & slow adaptation loop 
 
-# 1. Initialize Agent with System Prompt
+
 
 
 

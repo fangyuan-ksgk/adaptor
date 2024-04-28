@@ -3,22 +3,31 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 from human_eval.data import write_jsonl, read_problems, stream_jsonl, HUMAN_EVAL
 from human_eval.evaluation import evaluate_functional_correctness
-import os
+import os, json
 from tqdm import tqdm
 from mlx_lm import load, generate
 
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
+log_dir = "data/log/"
+config_dir = "data/config/"
 
 # Set the device to GPU (CUDA) if available
 # device = "cuda" if torch.cuda.is_available() else "cpu"
+pretrained_prompt_template = """[INSTURCTION] {system_prompt} [\INSTRUCTION] \n{prompt}"""
+
+def load_config(config_name):
+    config_path = f"{config_dir}{config_name}.json"
+    config = json.load(open(config_path, 'r'))
+    return config
 
 
-def generate_one_completion_pretrained(prompt: str, model, tokenizer, device):
+def generate_one_completion_pretrained(prompt: str, system_prompt: str,  model, tokenizer, device):
     """
     For pre-trained model HumanEval relies on direct continuation
     """
     tokenizer.pad_token = tokenizer.eos_token
-    inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=4096)
+    format_prompt = pretrained_prompt_template.format(system_prompt=system_prompt, prompt=prompt)
+    inputs = tokenizer(format_prompt, return_tensors="pt", truncation=True, max_length=4096)
 
     # Generate || The configuration is designed for model to be more 'creative' therefore giving more freedom to generate and find the 'correct' answer
     generate_ids = model.generate(
@@ -67,16 +76,17 @@ def trim_response(response):
     response = '    ' + response.lstrip()
     return response
 
-def get_mlx_completion_pretrained(prompt, model, tokenizer, verbose=True):
-    response = generate(model, tokenizer, prompt=prompt, max_tokens=512, temp=0.2, top_p=0.95, verbose=verbose)
+
+def get_mlx_completion_pretrained(prompt, system_prompt, model, tokenizer, verbose=True):
+    format_prompt = pretrained_prompt_template.format(system_prompt=system_prompt, prompt=prompt)
+    response = generate(model, tokenizer, prompt=format_prompt, max_tokens=512, temp=0.2, top_p=0.95, verbose=verbose)
     return trim_response(response)
 
-def get_mlx_completion_instruct(prompt, model, tokenizer, verbose=True):
+def get_mlx_completion_instruct(prompt, system_prompt, model, tokenizer, verbose=True):
     messages = [
         {
             "role": "system",
-            "content": "You are a friendly chatbot. WRITE THE FULL COMPLETE FUNCTION (EG WITH def ....) END CODE WITH '```'. NOTE YOU ABSOLUTELY MUST END THE CODE WITH END CODE WITH '```' OR ELSE THE CODE WILL NOT BE INTERPRETTED!!!!",
-
+            "content": f"You are a friendly chatbot. [INSTRUCTION] {system_prompt} [\INSTRUCTION] WRITE THE FULL COMPLETE FUNCTION (EG WITH def ....) END CODE WITH '```'. NOTE YOU ABSOLUTELY MUST END THE CODE WITH END CODE WITH '```' OR ELSE THE CODE WILL NOT BE INTERPRETTED!!!!",
         },
         {"role": "user", "content": prompt},
     ]
@@ -86,12 +96,12 @@ def get_mlx_completion_instruct(prompt, model, tokenizer, verbose=True):
     return response
 
 
-def generate_one_completion_instruct(prompt, model, tokenizer, device):
+def generate_one_completion_instruct(prompt, system_prompt, model, tokenizer, device):
     # Format the prompt using the tokenizer's chat template
     messages = [
         {
             "role": "system",
-            "content": "You are a friendly chatbot. WRITE THE FULL COMPLETE FUNCTION (EG WITH def ....) END CODE WITH '```'. NOTE YOU ABSOLUTELY MUST END THE CODE WITH END CODE WITH '```' OR ELSE THE CODE WILL NOT BE INTERPRETTED!!!!",
+            "content": f"You are a friendly chatbot. [INSTRUCTION] {system_prompt} [\INSTRUCTION] WRITE THE FULL COMPLETE FUNCTION (EG WITH def ....) END CODE WITH '```'. NOTE YOU ABSOLUTELY MUST END THE CODE WITH END CODE WITH '```' OR ELSE THE CODE WILL NOT BE INTERPRETTED!!!!",
 
         },
         {"role": "user", "content": prompt},
@@ -126,29 +136,41 @@ def generate_one_completion_instruct(prompt, model, tokenizer, device):
 # How come they do not release the code they've used to evaluate it on HumanEval?
 
 class CodeCompletionGenerator:
-    def __init__(self, model_name, device="mps", is_instruct=False):
+    def __init__(self, model_name, device="mps", is_instruct=False, system_prompt="", file_name = None):
         self.device = device
         self.model_name = model_name
         self.is_instruct = is_instruct
+        self.system_prompt = system_prompt
+        self.file_name = file_name
         if self.device == "mps":
             self.model, self.tokenizer = load(model_name)
         else: # Cuda device
             self.model = AutoModelForCausalLM.from_pretrained(self.model_name, trust_remote_code=True).to(self.device)
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_name, trust_remote_code=True)
 
-    def generate_one_completion(self, prompt):
+    @classmethod
+    def from_config(cls, config_name, device="mps"):
+        config = load_config(config_name)
+        return cls(**config, device=device)
+
+    def generate_one_completion(self, prompt, system_prompt=""):
+        if system_prompt != "":
+            self.system_prompt = system_prompt
+
         if self.device == "mps":
             if self.is_instruct:
-                return get_mlx_completion_instruct(prompt, self.model, self.tokenizer)
+                return get_mlx_completion_instruct(prompt, self.system_prompt, self.model, self.tokenizer)
             else:
-                return get_mlx_completion_pretrained(prompt, self.model, self.tokenizer)
+                return get_mlx_completion_pretrained(prompt, self.system_prompt, self.model, self.tokenizer)
         else: # Cuda device
             if self.is_instruct:
-                return generate_one_completion_instruct(prompt, self.model, self.tokenizer, self.device)
+                return generate_one_completion_instruct(prompt, self.system_prompt, self.model, self.tokenizer, self.device)
             else:
-                return generate_one_completion_pretrained(prompt, self.model, self.tokenizer, self.device)
+                return generate_one_completion_pretrained(prompt, self.system_prompt, self.model, self.tokenizer, self.device)
             
-    def run_human_eval_test(self, file_name, indices=None):
+    def run_human_eval_test(self, file_name=None, indices=None, global_system_prompt=""):
+        if file_name is None:
+            file_name = self.file_name
         problems = read_problems()
         if indices is not None:
             problems = {list(problems.keys())[i]: problems[list(problems.keys())[i]] for i in indices}
@@ -159,11 +181,11 @@ class CodeCompletionGenerator:
         samples = []
         for task_id in problems:
             for _ in range(num_samples_per_task):
-                completion = self.generate_one_completion(problems[task_id]["prompt"])
+                completion = self.generate_one_completion(problems[task_id]["prompt"], global_system_prompt)
                 samples.append(dict(task_id=task_id, completion=completion))
                 pb.update(1)
         pb.close()
-        write_jsonl(f"data/{file_name}.jsonl", samples)
+        write_jsonl(f"{log_dir}{file_name}.jsonl", samples)
 
         # Error Message & Information Parsing
         check_performance(file_name, indices)
@@ -219,7 +241,7 @@ def check_performance(filename, indices=None):
     """ 
     Pass / Error Message, useful for reflective debugging
     """
-    sample_file = "data/" + filename + ".jsonl"  
+    sample_file = log_dir + filename + ".jsonl"  
     out_file = sample_file + "_info.jsonl"
     print(f"Writing error information to {out_file}...")
     n_samples = sum(1 for _ in stream_jsonl(sample_file))
@@ -230,11 +252,12 @@ def benchmark_performance(filename, k=[1]):
     """ 
     Official HumanEval Benchmarking :: Only success / fail but no further information
     """
-    sample_file = "data/" + filename + ".jsonl"
+    sample_file = log_dir + filename + ".jsonl"
     n_workers: int = 1
     timeout: float = 3.0
     problem_file: str = HUMAN_EVAL
     results = evaluate_functional_correctness(sample_file, k, n_workers, timeout, problem_file)
     return results
+
 
 
