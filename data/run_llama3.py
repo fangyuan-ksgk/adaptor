@@ -4,7 +4,7 @@ from tqdm import tqdm
 
 # model_name = "microsoft/Phi-3-mini-128k-instruct"
 model_name="meta-llama/Meta-Llama-3-8B"
-is_instruct = True
+is_instruct = False
 file_name = "eval_llama3_pretrain"
 
 code_gen = CodeCompletionGenerator(model_name=model_name, device="mps", is_instruct=is_instruct)

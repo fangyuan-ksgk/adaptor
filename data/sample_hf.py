@@ -1,10 +1,12 @@
 from operator import is_
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
-from human_eval.data import write_jsonl, read_problems, stream_jsonl
+from human_eval.data import write_jsonl, read_problems, stream_jsonl, HUMAN_EVAL
+from human_eval.evaluation import evaluate_functional_correctness
 import os
 from tqdm import tqdm
 from mlx_lm import load, generate
+
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
 # Set the device to GPU (CUDA) if available
@@ -123,9 +125,6 @@ def generate_one_completion_instruct(prompt, model, tokenizer, device):
 # I still suspect llama3-8b is not fairly evaluated here ... 
 # How come they do not release the code they've used to evaluate it on HumanEval?
 
-
-
-
 class CodeCompletionGenerator:
     def __init__(self, model_name, device="mps", is_instruct=False):
         self.device = device
@@ -149,8 +148,39 @@ class CodeCompletionGenerator:
             else:
                 return generate_one_completion_pretrained(prompt, self.model, self.tokenizer, self.device)
             
+    def run_human_eval_test(self, file_name, indices=None):
+        problems = read_problems()
+        if indices is not None:
+            problems = {list(problems.keys())[i]: problems[list(problems.keys())[i]] for i in indices}
+        # Code Completion
+        num_samples_per_task = 2
+        total_tasks = len(problems)
+        pb = tqdm(total=total_tasks * num_samples_per_task, desc="Generating code completions")
+        samples = []
+        for task_id in problems:
+            for _ in range(num_samples_per_task):
+                completion = self.generate_one_completion(problems[task_id]["prompt"])
+                samples.append(dict(task_id=task_id, completion=completion))
+                pb.update(1)
+        pb.close()
+        write_jsonl(f"data/{file_name}.jsonl", samples)
+
+        # Error Message & Information Parsing
+        check_performance(file_name, indices)
+
+        if indices is None:
+            # Standard HumanEval Benchmarking
+            results = benchmark_performance(file_name)
+            print("----- HumanEval Benchmarking Results [All Cases] -----")
+            for k, v in results.items():
+                print(f"{k}: {v}")
+
+            
     
 def check_code(task_id, problem, completion, timeout=10.0):
+    """ 
+    Subprocess-base code test
+    """
     # Construct the check program and run it. This is literally the python file which is supposed to be executed
     check_program = (
         problem["prompt"] + completion + "\n" +
@@ -168,8 +198,14 @@ def check_code(task_id, problem, completion, timeout=10.0):
     return check_program, success, message
 
 
-def check_performance_stream(sample_file):
+def check_performance_stream(sample_file, indices=None):
+    """ 
+    Streaming code checking
+    """
     problems = read_problems()
+    if indices is not None:
+        problems = {list(problems.keys())[i]: problems[list(problems.keys())[i]] for i in indices}
+
     for sample in stream_jsonl(sample_file): # This is a generator
         task_id = sample['task_id']
         problem = problems[task_id]
@@ -179,9 +215,26 @@ def check_performance_stream(sample_file):
         sample['message'] = message
         yield sample
 
-def check_performance(filename):
-    sample_file = filename + ".jsonl"  
-    out_file = sample_file + "_results.jsonl"
-    print(f"Writing results to {out_file}...")
+def check_performance(filename, indices=None):
+    """ 
+    Pass / Error Message, useful for reflective debugging
+    """
+    sample_file = "data/" + filename + ".jsonl"  
+    out_file = sample_file + "_info.jsonl"
+    print(f"Writing error information to {out_file}...")
     n_samples = sum(1 for _ in stream_jsonl(sample_file))
-    write_jsonl(out_file, tqdm(check_performance_stream(sample_file), total=n_samples))
+    write_jsonl(out_file, tqdm(check_performance_stream(sample_file, indices), total=n_samples))
+
+
+def benchmark_performance(filename, k=[1]):
+    """ 
+    Official HumanEval Benchmarking :: Only success / fail but no further information
+    """
+    sample_file = "data/" + filename + ".jsonl"
+    n_workers: int = 1
+    timeout: float = 3.0
+    problem_file: str = HUMAN_EVAL
+    results = evaluate_functional_correctness(sample_file, k, n_workers, timeout, problem_file)
+    return results
+
+
