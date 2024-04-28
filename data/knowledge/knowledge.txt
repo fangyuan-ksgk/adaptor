@@ -1,3 +1,4 @@
 This is a test knowledge.
 To achieve the correct solution, use recursion or iteration to correctly implement the Fibonacci sequence.
 A correct implementation of the Fibonacci function should be able to return the correct Fibonacci number for any given input.
+The knowledge to add to the knowledge base of the LLM. Ensure the description is coherent and contains useful information.
