@@ -5,6 +5,7 @@ import json
 from sentence_transformers import SentenceTransformer, util
 import torch
 from .prompt import *
+import re
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 GROQ_API_KEY1 = os.environ["GROQ_API_KEY1"]
 groq_client = Groq(api_key=GROQ_API_KEY)
@@ -91,6 +92,38 @@ def add_knowledge(knowledge):
     with open(knowledge_path, "a", encoding="utf-8") as file:
         file.write(knowledge + "\n")
 
+##################################################
+# Unstructured Output is important for Reasoning #
+##################################################
+# That unfortunately calls for parsing 
+
+
+
+def parse_bullet_point_line(r):
+    match1 = re.match(r"^(\d+)\. \*\*", r)
+    match2 = re.match(r".*?(\d+):", r)
+    match3 = re.match(r"^\*\*(\d+)\.", r)
+
+    # Check both patterns and use the one that matches
+    match = match1 if match1 else (match2 if match2 else match3)
+    if match:
+        # print(f"Pattern matched: {match.group(1)}")
+        prefix = match.group(0)
+        return r.replace(prefix, "").strip()
+    else:
+        # print("Pattern not matched")
+        # print(r)
+        return False
+    
+def parse_bullet_points(lines):
+    bullet_points = []
+    for r in lines.split("\n"):
+        if parse_bullet_point_line(r):
+            p = parse_bullet_point_line(r)
+            if p:
+                bullet_points.append(p)
+    return bullet_points
+
 model = SentenceTransformer("all-MiniLM-L6-v2")
 
 def retrieve_knowledge(query, top_k=5):
@@ -168,6 +201,14 @@ def form_case_info(info):
     
 def form_case_infos(infos):
     return [form_case_info(info) for info in infos]
+
+def form_case_infos_v2(infos):
+    info_str = ""
+    for i, info in enumerate(infos):
+        if info["success"]:
+            continue
+        info_str += str(info)
+    return info_str
     
 def form_rewrite_message_with_rag(case_info, retrieve_infos):
     rewrite_message = rewrite_message_template.format(case_info=case_info)
@@ -252,6 +293,77 @@ def call_rewriter(case_infos):
     prompts = [rewrite_prompt, rewrite_prompt_with_rag]
     return [p for p in prompts if p is not None]
 
+# Cognitive Pattern Based Reflective Prompt Rewriter
+cognitive_pattern_v1 = [
+    "{info_str} \nCan you please look at this program information and tell me what went wrong here?",
+    "Can you provide some advice that I could keep in mind such as to avoid similar error?",
+    "What are the key takeaways from this error?"
+] # Latter two will be follow-ups from the previous message
+
+cognitive_pattern_v2 = [
+    "Analyze the program information to identify the root cause of the error and explain what went wrong",
+    "Provide guidance on how to avoid similar errors in the future, including best practices and coding principles",
+    "Identify the key takeaways and lessons learned from the error, including any concepts, principles, or techniques that can be applied to future coding tasks"
+]
+
+
+
+def call_rewriter_v2(case_infos):
+
+    info_str = form_case_infos_v2(case_infos)
+    # First Step : Debug Message
+    debug_message = cognitive_pattern_v1[0].format(info_str = info_str)
+    # Second Step: Advice Message
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT_REWRITER},
+        {"role": "user", "content": debug_message}
+    ]
+    MODEL_NAME = "llama3-70b-8192"
+
+    # Direct Rewrite + Knowledge Update + Retrieve Knowledge
+    # Error Analysis | Chat format | Boost in Cognitive Capacity
+    response = chat_complete_groq(
+        model_name=MODEL_NAME,
+        messages=messages,
+        tools = [],
+        max_tokens=512,
+    )
+    error_analysis = response.choices[0].message.content
+    messages.append({"role": "assistant", "content": error_analysis})
+
+    # Advice | Chat format | Boost in Cognitive Capacity
+    advice_message = cognitive_pattern_v1[1]
+    messages.append({"role": "user", "content": advice_message})
+
+    response = chat_complete_groq(
+        model_name=MODEL_NAME,
+        messages=messages,
+        tools=[],
+        max_tokens=512,
+    )
+    advice = response.choices[0].message.content
+    messages.append({"role": "assistant", "content": advice})
+    advices = parse_bullet_points(advice) # Parse unstructured data
+
+    # Knowledge | Chat format | Boost in Cognitive Capacity
+    knowledge_message = cognitive_pattern_v1[2]
+    messages.append({"role": "user", "content": knowledge_message})
+
+    response = chat_complete_groq(
+        model_name=MODEL_NAME,
+        messages=messages,
+        tools=[],
+        max_tokens=512,
+    )
+    knowledge = response.choices[0].message.content
+    knowledges = parse_bullet_points(knowledge) # Parse unstructured data
+
+    # Parsing will come in handy sometimes
+    format_advice = "-".join(advices)
+    format_knowledge = "-".join(knowledges)
+    return [format_advice, format_knowledge]
+    # return [advice, knowledge]
+
 
 #############################################
 # Search Algorithm: Monte Carlo Tree Search #
@@ -270,8 +382,11 @@ class Node:
 
     @classmethod
     def from_prompt(cls, indices, prompt, id, code_gen, parent=None):
+        id = int(id)
         code_gen.run_human_eval_test(indices=indices, global_system_prompt=prompt, id=id)
         infos = code_gen.get_info(indices, id)
+        infos['query'] = infos['prompt']
+        infos['prompt'] = prompt
         score = np.array([info['success'] for info in infos]).mean()
         return cls(infos=infos, prompt=prompt, score=score, id=id, parent=parent)
 
@@ -283,8 +398,7 @@ class Node:
 
     def spawn_child_nodes(self, indices, code_gen):
         # Evolve Up to 2 Child Nodes from Parent Node
-        case_infos = form_case_infos(self.infos)
-        prompts = call_rewriter(case_infos)
+        prompts = call_rewriter_v2(self.infos)
         for prompt in prompts:
             self.children.append(Node.from_prompt(indices, prompt, self.id + 1, code_gen, parent=self))
         return self.children
@@ -342,6 +456,8 @@ class MCTS:
     
     def save_best_node(self): # Save the best node
         self.best_node.save_node(self.indices)
+
+
     
 
     

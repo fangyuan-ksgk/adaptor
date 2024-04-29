@@ -10,24 +10,46 @@ import numpy as np
 config_name = "phi_3_instruct"
 code_gen = CodeCompletionGenerator.from_config(config_name, device="mps")
 
-batches = [indices.tolist() for indices in np.array_split(list(range(162)), 60)]
+# batches = [indices.tolist() for indices in np.array_split(list(range(162)), 60)]
+# max_search = 30
+# pb = tqdm(total=len(batches), desc="MCTS Search Batches")
+# for i, indices in enumerate(batches):
+#     pb.desc = "MCTS Search Batches: %d/%d" % (i + 1, len(batches))
+#     # Initialize Sub-Batch Indices
+#     init_prompt = "Do not fuck it up"
+
+#     # Initialize the MCTS object
+#     mcts = MCTS(init_prompt, 0, indices, code_gen, max_search=max_search)
+
+#     # Run the search loop
+#     while not mcts.is_search_complete():
+#         node_to_expand = mcts.select_node()
+#         mcts.expand_node(node_to_expand)
+#         pb.update(1)
+#     pb.n = max_search * (i + 1)
+#     # Retrieve the best prompt after the search is complete
+#     best_prompt = mcts.get_best_prompt()
+#     print("Best Prompt on Batch %d: %s" % (i, best_prompt))
+#     mcts.save_best_node()
+
+
+##############
+# Case Study #
+##############
+print("---- MCTS Search ----")
+indices = [55] # Fibonacci Sequence Issue
 max_search = 30
-pb = tqdm(total=len(batches), desc="MCTS Search Batches")
-for i, indices in enumerate(batches):
-    pb.desc = "MCTS Search Batches: %d/%d" % (i + 1, len(batches))
-    # Initialize Sub-Batch Indices
-    init_prompt = "Do not fuck it up"
+init_prompt = "Do not fuck it up"
+# Initialize the MCTS object
+mcts = MCTS(init_prompt, 0, indices, code_gen, max_search=max_search)
+pb = tqdm(total=int(max_search), desc="MCTS Search Batches")
+# Run the search loop
+while not mcts.is_search_complete():
+    node_to_expand = mcts.select_node()
+    mcts.expand_node(node_to_expand)
+    pb.update(1)
 
-    # Initialize the MCTS object
-    mcts = MCTS(init_prompt, 0, indices, code_gen, max_search=max_search)
-
-    # Run the search loop
-    while not mcts.is_search_complete():
-        node_to_expand = mcts.select_node()
-        mcts.expand_node(node_to_expand)
-        pb.update(1)
-    pb.n = max_search * (i + 1)
-    # Retrieve the best prompt after the search is complete
-    best_prompt = mcts.get_best_prompt()
-    print("Best Prompt on Batch %d: %s" % (i, best_prompt))
-    mcts.save_best_node()
+pb.n = max_search
+# Retrieve the best prompt after the search is complete
+best_prompt = mcts.get_best_prompt()
+mcts.save_best_node()

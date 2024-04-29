@@ -9,6 +9,9 @@ Execution of your program resulted in the following error message:
 </error>
 """
 
+
+
+
 correct_info_template_concise = """You've correctly implemented the '{entry_point}' function:
 <code>
 {prompt}{completion}
