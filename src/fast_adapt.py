@@ -385,8 +385,9 @@ class Node:
         id = int(id)
         code_gen.run_human_eval_test(indices=indices, global_system_prompt=prompt, id=id)
         infos = code_gen.get_info(indices, id)
-        infos['query'] = infos['prompt']
-        infos['prompt'] = prompt
+        for info in infos:
+            info['query'] = info['prompt']
+            info['prompt'] = prompt
         score = np.array([info['success'] for info in infos]).mean()
         return cls(infos=infos, prompt=prompt, score=score, id=id, parent=parent)
 

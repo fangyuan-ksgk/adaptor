@@ -4,3 +4,5 @@ groq
 tqdm
 fire
 numpy
+flash-attn
+mlx_lm
