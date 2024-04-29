@@ -1,0 +1,1 @@
+{"indices": [39, 40, 41], "prompt": "You should revise the car_race_collision function to correctly calculate the number of collisions. Also, review the prime_fib function for an infinite loop and optimize it to avoid the timeout error.", "id": 1}

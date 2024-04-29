@@ -6,7 +6,9 @@ from sentence_transformers import SentenceTransformer, util
 import torch
 from .prompt import *
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
+GROQ_API_KEY1 = os.environ["GROQ_API_KEY1"]
 groq_client = Groq(api_key=GROQ_API_KEY)
+groq_client1 = Groq(api_key=GROQ_API_KEY1)
 
 ###################
 # Tool Definition #
@@ -181,6 +183,30 @@ def form_batch_rewrite_message_with_rag(case_infos, retrieve_infos = []):
         numbered_retrieve_infos = "\n".join(f"{idx+1}. {info}" for idx, info in enumerate(retrieve_infos))
         knowledge_message = knowledge_message_template.format(numbered_retrieve_infos=numbered_retrieve_infos)
         return rewrite_with_rag_template.format(rewrite_message=rewrite_message, knowledge_message=knowledge_message)
+    
+
+def chat_complete_groq(model_name, messages, tools, tool_choice="auto", max_tokens=4096):
+    """ 
+    Use alternative Groq API key for backup
+    """
+    try:
+        response = groq_client.chat.completions.create(
+            model=model_name,
+            messages=messages,
+            tools=tools,
+            tool_choice="auto",
+            max_tokens=4096,
+        )
+    except:
+        response = groq_client1.chat.completions.create(
+            model=model_name,
+            messages=messages,
+            tools=tools,
+            tool_choice="auto",
+            max_tokens=4096,
+        )
+    return response
+
         
 def call_rewriter(case_infos):
     
@@ -194,8 +220,8 @@ def call_rewriter(case_infos):
     MODEL_NAME = "llama3-70b-8192"
 
     # Direct Rewrite + Knowledge Update + Retrieve Knowledge
-    response = groq_client.chat.completions.create(
-        model=MODEL_NAME,
+    response = chat_complete_groq(
+        model_name=MODEL_NAME,
         messages=messages,
         tools=[prompt_rewrite_tool, add_knowledge_tool, retrieve_knowledge_tool],
         tool_choice="auto",
@@ -213,8 +239,8 @@ def call_rewriter(case_infos):
         {"role": "user", "content": rewrite_message}
     ]
 
-    response = groq_client.chat.completions.create(
-        model=MODEL_NAME,
+    response = chat_complete_groq(
+        model_name=MODEL_NAME,
         messages=messages,
         tools=[prompt_rewrite_tool],
         tool_choice="auto",
