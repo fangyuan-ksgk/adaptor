@@ -1,1 +1,0 @@
-{"indices": [30, 31, 32], "prompt": "To fix this, you should revise the implementation of the 'find_zero' function to correctly find the roots of the polynomial. You can use numerical methods like the Newton-Raphson method to find the roots.", "id": 1}

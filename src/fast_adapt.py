@@ -388,7 +388,7 @@ class Node:
         for info in infos:
             info['query'] = info['prompt']
             info['prompt'] = prompt
-        score = np.array([info['success'] for info in infos]).mean()
+        score = np.array([info['success'] for info in infos]).mean() + 20 / len(prompt)
         return cls(infos=infos, prompt=prompt, score=score, id=id, parent=parent)
 
     def update_score(self, additional_score):
@@ -400,12 +400,16 @@ class Node:
     def spawn_child_nodes(self, indices, code_gen):
         # Evolve Up to 2 Child Nodes from Parent Node
         prompts = call_rewriter_v2(self.infos)
-        for prompt in prompts:
-            self.children.append(Node.from_prompt(indices, prompt, self.id + 1, code_gen, parent=self))
+        for i, prompt in enumerate(prompts):
+            self.children.append(Node.from_prompt(indices=indices, prompt=prompt, id=int(str(self.id)+str(i)), code_gen=code_gen, parent=self))
         return self.children
     
     def save_node(self, indices, text=""):
-        info_dict = {"indices": indices, "prompt": self.prompt, "id": self.id}
+        info_dict = {"indices": indices, "system_prompt": self.prompt, "id": self.id}
+        for i, info in enumerate(self.infos):
+            info_dict["case_"+str(i)] = info['success']   
+        print("Saving Info Dict: ")
+        print(info_dict) 
         file_name = "data/log/best_node-"+ text + "-".join(map(str, indices)) + ".json"
         with open(file_name, "w") as f:
             json.dump(info_dict, f)

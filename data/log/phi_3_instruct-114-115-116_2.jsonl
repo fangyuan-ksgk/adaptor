@@ -1,3 +1,0 @@
-{"task_id": "HumanEval/114", "completion": "    \"\"\"\n    Given an array of integers nums, find the minimum sum of any non-empty sub-array of nums.\n    \"\"\"\n    min_sum = float('inf')\n    current_sum = 0\n\n    for num in nums:\n        current_sum += num\n        while current_sum > min_sum:\n            min_sum = min(min_sum, current_sum)\n            current_sum -= nums[0]\n\n    return min_sum"}
-{"task_id": "HumanEval/115", "completion": "    total_fills = 0\n    for row in grid:\n        total_water = sum(row)\n        total_fills += math.ceil(total_water / capacity)\n    return total_fills"}
-{"task_id": "HumanEval/116", "completion": "    def count_ones(n):\n        return bin(n).count('1')\n\n    return sorted(arr, key=lambda x: (count_ones(x), x))"}

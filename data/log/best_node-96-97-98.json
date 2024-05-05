@@ -1,1 +1,0 @@
-{"indices": [96, 97, 98], "prompt": "A possible solution is to use a list comprehension to generate a list of prime numbers less than n and then slice the list to return the first n prime numbers.", "id": 1}

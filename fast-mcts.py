@@ -38,7 +38,7 @@ code_gen = CodeCompletionGenerator.from_config(config_name, device="mps")
 ##############
 print("---- MCTS Search ----")
 indices = [55] # Fibonacci Sequence Issue
-max_search = 30
+max_search = 10
 init_prompt = "Do not fuck it up"
 # Initialize the MCTS object
 mcts = MCTS(init_prompt, 0, indices, code_gen, max_search=max_search)

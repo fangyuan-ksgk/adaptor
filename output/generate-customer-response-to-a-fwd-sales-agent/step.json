@@ -1,0 +1,53 @@
+{
+    "data_card": {
+        "Generate customer response to a fwd sales agent": {
+            "Date & Time": "2024-05-03T14:28:48.925060",
+            "Model Name": [
+                "gpt-4-turbo-2024-04-09"
+            ],
+            "Model Card": [
+                "https://cdn.openai.com/papers/gpt-4-system-card.pdf"
+            ],
+            "License Information": [
+                "https://openai.com/policies"
+            ],
+            "Citation Information": [
+                "@article{OpenAI2023GPT4TR,\n  title={GPT-4 Technical Report},\n  author={OpenAI},\n  journal={ArXiv},\n  year={2023},\n  volume={abs/2303.08774},\n  url={https://api.semanticscholar.org/CorpusID:257532815}\n}",
+                "@article{ouyang2022training,\n  title={Training language models to follow instructions with human feedback},\n  author={Ouyang, Long and Wu, Jeffrey and Jiang, Xu and Almeida, Diogo and Wainwright, Carroll and Mishkin, Pamela and Zhang, Chong and Agarwal, Sandhini and Slama, Katarina and Ray, Alex and others},\n  journal={Advances in Neural Information Processing Systems},\n  volume={35},\n  pages={27730--27744},\n  year={2022}\n}"
+            ]
+        }
+    },
+    "__version__": "0.28.0",
+    "datetime": "2024-05-03T14:28:48.925105",
+    "type": "DataFromPrompt",
+    "name": "Generate customer response to a fwd sales agent",
+    "version": 1.0,
+    "fingerprint": "35b329ff86934cf8",
+    "pickled": false,
+    "req_versions": {
+        "dill": "0.3.7",
+        "sqlitedict": "2.1.0",
+        "torch": "2.1.2",
+        "numpy": "1.26.4",
+        "transformers": "4.39.3",
+        "datasets": "2.19.0",
+        "huggingface_hub": "0.22.2",
+        "accelerate": "0.27.2",
+        "peft": "0.10.0",
+        "tiktoken": "0.6.0",
+        "tokenizers": "0.15.2",
+        "openai": "1.23.6",
+        "ctransformers": "0.2.27",
+        "optimum": "1.18.0",
+        "bitsandbytes": "0.42.0",
+        "litellm": "1.31.14",
+        "trl": "0.8.1",
+        "setfit": "1.0.3",
+        "together": "0.2.10",
+        "anthropic": "0.25.1",
+        "cohere": "4.57",
+        "boto3": "1.34.51",
+        "google.generativeai": "0.3.2"
+    },
+    "interpreter": "3.11.5 (main, Sep 11 2023, 08:31:25) [Clang 14.0.6 ]"
+}

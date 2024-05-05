@@ -1,1 +1,0 @@
-{"indices": [9, 10, 11], "prompt": "You need to add a check at the beginning of your function to handle the edge case where the input list is empty.", "id": 1}

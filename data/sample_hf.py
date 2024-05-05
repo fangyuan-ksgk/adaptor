@@ -95,13 +95,11 @@ def get_mlx_completion_pretrained(prompt, system_prompt, model, tokenizer, verbo
     response = generate(model, tokenizer, prompt=format_prompt, max_tokens=512, temp=0.2, top_p=0.95, verbose=verbose)
     return trim_response(response)
 
+instruction_template = """You are a friendly chatbot. [INSTRUCTION] {system_prompt} [\INSTRUCTION] WRITE THE FULL COMPLETE FUNCTION (EG WITH def ....) END CODE WITH '```'. NOTE YOU ABSOLUTELY MUST END THE CODE WITH END CODE WITH '```' OR ELSE THE CODE WILL NOT BE INTERPRETTED!\n"""
+
 def get_mlx_completion_instruct(prompt, system_prompt, model, tokenizer, verbose=True):
     messages = [
-        {
-            "role": "system",
-            "content": f"You are a friendly chatbot. [INSTRUCTION] {system_prompt} [\INSTRUCTION] WRITE THE FULL COMPLETE FUNCTION (EG WITH def ....) END CODE WITH '```'. NOTE YOU ABSOLUTELY MUST END THE CODE WITH END CODE WITH '```' OR ELSE THE CODE WILL NOT BE INTERPRETTED!!!!",
-        },
-        {"role": "user", "content": prompt},
+    {"role": "user", "content": instruction_template.format(system_prompt=system_prompt) + prompt},
     ]
     format_prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     response = generate(model, tokenizer, prompt=format_prompt, max_tokens=512, temp=0.2, top_p=0.95, verbose=verbose)
@@ -113,14 +111,8 @@ def get_mlx_completion_instruct(prompt, system_prompt, model, tokenizer, verbose
 def generate_one_completion_instruct(prompt, system_prompt, model, tokenizer, device):
     # Format the prompt using the tokenizer's chat template
     messages = [
-        {
-            "role": "system",
-            "content": f"You are a friendly chatbot. [INSTRUCTION] {system_prompt} [\INSTRUCTION] WRITE THE FULL COMPLETE FUNCTION (EG WITH def ....) END CODE WITH '```'. NOTE YOU ABSOLUTELY MUST END THE CODE WITH END CODE WITH '```' OR ELSE THE CODE WILL NOT BE INTERPRETTED!!!!",
-
-        },
-        {"role": "user", "content": prompt},
+    {"role": "user", "content": instruction_template.format(system_prompt=system_prompt) + prompt},
     ]
-
     # Use Pipeline for that
     pipe = pipeline(
         "text-generation",
